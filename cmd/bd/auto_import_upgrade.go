@@ -98,7 +98,25 @@ func maybeAutoImportJSONL(ctx context.Context, s storage.DoltStorage, beadsDir s
 		return
 	}
 
-	// Fallback for non-embedded stores: multi-call path (original behavior).
+	// Fallback for non-embedded stores (e.g. Dolt server mode): multi-call path.
+	//
+	// Emptiness guard (be-cpk): unlike the embedded path above — which checks
+	// and imports atomically inside ImportJSONLData — the multi-call path has
+	// no inherent "only if empty" protection. Without this guard, every bd
+	// invocation re-imports the full JSONL, clobbering concurrent writes that
+	// haven't yet been auto-exported to JSONL. Check the store's own row count
+	// first; only proceed with the upgrade-recovery import when the DB is empty.
+	stats, err := s.GetStatistics(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: auto-import: failed to check database state: %v; skipping import\n", err)
+		return
+	}
+	if stats.TotalIssues > 0 {
+		// Database already has issues; the upgrade-recovery import is not
+		// needed and would clobber live state.
+		return
+	}
+
 	fmt.Fprintf(os.Stderr, "auto-importing %d bytes from %s into empty database...\n", info.Size(), jsonlPath)
 
 	result, err := fallbackImporter(ctx, s, jsonlPath)
