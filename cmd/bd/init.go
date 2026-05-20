@@ -521,6 +521,25 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 			}
 		}
 
+		// Detect a previously-initialized workspace (bd-3en).
+		//
+		// When .beads/config.yaml is already present with a valid backend,
+		// this workspace was set up before. Re-running `bd init` here on a
+		// fresh clone (where .beads/embeddeddolt/ is gitignored and absent)
+		// must NOT silently overwrite user-curated project files
+		// (AGENTS.md, CLAUDE.md, .claude/settings.json, project-root
+		// .gitignore) or auto-commit them.
+		//
+		// `--force` and `--reinit-local` opt back into full re-setup; both
+		// already imply the user accepts overwrites.
+		previouslyInitialized := false
+		if !force && !reinitLocal {
+			if existingCfg, _ := configfile.Load(beadsDirForInit); existingCfg != nil &&
+				existingCfg.GetBackend() == configfile.BackendDolt {
+				previouslyInitialized = true
+			}
+		}
+
 		// Determine storage path.
 		//
 		// Precedence: --db > BEADS_DIR > default (.beads/dolt)
@@ -635,7 +654,7 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 			// repo's .beads/, the gitignore update is still appropriate.
 			cwdAbs, _ := filepath.Abs(cwd)
 			beadsDirIsLocal := strings.HasPrefix(beadsDirAbs, filepath.Clean(cwdAbs)+string(filepath.Separator))
-			if beadsDirIsLocal {
+			if beadsDirIsLocal && !previouslyInitialized {
 				if err := doctor.EnsureProjectGitignore(cwd); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to update project .gitignore: %v\n", err)
 					// Non-fatal - continue anyway
@@ -1433,8 +1452,10 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 		}
 
 		// Add agent instructions to AGENTS.md (or custom filename via --agents-file)
-		// Skip in stealth mode (user wants invisible setup) or when explicitly skipped
-		if !stealth && !skipAgents {
+		// Skip in stealth mode (user wants invisible setup), when explicitly
+		// skipped, or when the workspace was previously initialized — the
+		// caller already has these files configured (bd-3en).
+		if !stealth && !skipAgents && !previouslyInitialized {
 			agentsTemplate, _ := cmd.Flags().GetString("agents-template")
 			agentsProfileStr, _ := cmd.Flags().GetString("agents-profile")
 			agentsProfile := agents.Profile(agentsProfileStr)
@@ -1468,8 +1489,10 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 		}
 
 		// Auto-setup Claude hooks and Codex project integration. Skip in stealth
-		// mode or when agents are skipped.
-		if !stealth && !skipAgents && !isBareGitRepo() {
+		// mode, when agents are skipped, or when the workspace was previously
+		// initialized (bd-3en) — the caller's curated .claude/settings.json
+		// should not be silently merged into.
+		if !stealth && !skipAgents && !isBareGitRepo() && !previouslyInitialized {
 			if err := setup.InstallClaudeProject(stealth); err != nil {
 				if !quiet {
 					fmt.Fprintf(os.Stderr, "Warning: failed to setup Claude hooks: %v\n", err)
@@ -1487,7 +1510,10 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 		// Auto-stage and commit beads files so bd doctor doesn't warn about
 		// untracked files or dirty working tree in a clean room setup.
 		// Only runs when not stealth, in a git repo, and using local storage.
-		if !stealth && isGitRepo() && useLocalBeads {
+		// Skip when the workspace was previously initialized (bd-3en): the
+		// curated agent files weren't modified, so an auto-commit here would
+		// just churn .beads/ scaffold and risk surprising the caller.
+		if !stealth && isGitRepo() && useLocalBeads && !previouslyInitialized {
 			gitAddCmd := exec.Command("git", "add", ".beads/")
 			if _, addErr := gitAddCmd.CombinedOutput(); addErr == nil {
 				// Also stage the agents file if it exists
@@ -1555,6 +1581,11 @@ Non-interactive mode (--non-interactive or BD_NON_INTERACTIVE=1):
 		// Skip output if quiet mode
 		if quiet {
 			return
+		}
+
+		if previouslyInitialized {
+			fmt.Printf("  %s Workspace was previously initialized; preserving AGENTS.md, CLAUDE.md, .claude/settings.json, and project .gitignore.\n", ui.RenderPass("✓"))
+			fmt.Printf("    Pass --force to re-run agent-file setup.\n")
 		}
 
 		if bootstrappedFromRemote {
