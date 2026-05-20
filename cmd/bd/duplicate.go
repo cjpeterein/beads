@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/beads/internal/audit"
 	"github.com/steveyegge/beads/internal/types"
 	"github.com/steveyegge/beads/internal/ui"
 	"github.com/steveyegge/beads/internal/utils"
@@ -86,6 +88,13 @@ func runDuplicate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("canonical issue not found: %s", canonicalID)
 	}
 
+	// Capture pre-close state for audit (survives Dolt GC flatten).
+	dupIssue, _ := store.GetIssue(ctx, duplicateID)
+	if dupIssue == nil {
+		return fmt.Errorf("duplicate issue not found: %s", duplicateID)
+	}
+	oldStatus := string(dupIssue.Status)
+
 	// Add a "duplicates" dependency edge (duplicate → canonical)
 	dep := &types.Dependency{
 		IssueID:     duplicateID,
@@ -96,14 +105,15 @@ func runDuplicate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to add duplicate link: %w", err)
 	}
 
-	// Close the duplicate issue
-	closedStatus := string(types.StatusClosed)
-	updates := map[string]interface{}{
-		"status": closedStatus,
-	}
-	if err := store.UpdateIssue(ctx, duplicateID, updates, actor); err != nil {
+	// Close the duplicate issue with a recorded reason so the close is
+	// auditable (close_reason populated, audit log entry emitted) instead
+	// of a silent UpdateIssue(status=closed). See bd-p50l.
+	session := os.Getenv("CLAUDE_SESSION_ID")
+	reason := fmt.Sprintf("duplicate of %s", canonicalID)
+	if err := store.CloseIssue(ctx, duplicateID, reason, actor, session); err != nil {
 		return fmt.Errorf("failed to close duplicate: %w", err)
 	}
+	audit.LogFieldChange(duplicateID, "status", oldStatus, "closed", actor, reason)
 
 	commandDidWrite.Store(true)
 
@@ -150,6 +160,13 @@ func runSupersede(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("replacement issue not found: %s", newID)
 	}
 
+	// Capture pre-close state for audit (survives Dolt GC flatten).
+	oldIssue, _ := store.GetIssue(ctx, oldID)
+	if oldIssue == nil {
+		return fmt.Errorf("issue to supersede not found: %s", oldID)
+	}
+	oldStatus := string(oldIssue.Status)
+
 	// Add a "supersedes" dependency edge (old → new)
 	dep := &types.Dependency{
 		IssueID:     oldID,
@@ -160,14 +177,15 @@ func runSupersede(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to add supersede link: %w", err)
 	}
 
-	// Close the superseded issue
-	closedStatus := string(types.StatusClosed)
-	updates := map[string]interface{}{
-		"status": closedStatus,
-	}
-	if err := store.UpdateIssue(ctx, oldID, updates, actor); err != nil {
+	// Close the superseded issue with a recorded reason so the close is
+	// auditable (close_reason populated, audit log entry emitted) instead
+	// of a silent UpdateIssue(status=closed). See bd-p50l.
+	session := os.Getenv("CLAUDE_SESSION_ID")
+	reason := fmt.Sprintf("superseded by %s", newID)
+	if err := store.CloseIssue(ctx, oldID, reason, actor, session); err != nil {
 		return fmt.Errorf("failed to close superseded issue: %w", err)
 	}
+	audit.LogFieldChange(oldID, "status", oldStatus, "closed", actor, reason)
 
 	commandDidWrite.Store(true)
 
