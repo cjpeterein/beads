@@ -412,6 +412,40 @@ func TestEmbeddedClose(t *testing.T) {
 		}
 	})
 
+	t.Run("close_session_beads_env_primary", func(t *testing.T) {
+		issue := bdCreate(t, bd, dir, "Beads env session test", "--type", "task")
+		cmd := exec.Command(bd, "close", issue.ID)
+		cmd.Dir = dir
+		env := bdEnv(dir)
+		env = append(env, "BEADS_SESSION_ID=beads-sess")
+		cmd.Env = env
+		stdout, stderr, err := runCommandBuffers(t, cmd)
+		if err != nil {
+			t.Fatalf("bd close with BEADS_SESSION_ID failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		}
+		session := querySessionSQL(t, beadsDir, issue.ID)
+		if session != "beads-sess" {
+			t.Errorf("expected closed_by_session 'beads-sess', got %q", session)
+		}
+	})
+
+	t.Run("close_session_beads_env_takes_precedence", func(t *testing.T) {
+		issue := bdCreate(t, bd, dir, "Session precedence test", "--type", "task")
+		cmd := exec.Command(bd, "close", issue.ID)
+		cmd.Dir = dir
+		env := bdEnv(dir)
+		env = append(env, "BEADS_SESSION_ID=beads-wins", "CLAUDE_SESSION_ID=claude-loses")
+		cmd.Env = env
+		stdout, stderr, err := runCommandBuffers(t, cmd)
+		if err != nil {
+			t.Fatalf("bd close with both session env vars failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		}
+		session := querySessionSQL(t, beadsDir, issue.ID)
+		if session != "beads-wins" {
+			t.Errorf("expected BEADS_SESSION_ID to win over CLAUDE_SESSION_ID, got %q", session)
+		}
+	})
+
 	// ===== JSON Output and Done Alias =====
 
 	t.Run("close_json_output", func(t *testing.T) {

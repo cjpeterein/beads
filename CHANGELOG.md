@@ -128,6 +128,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deterministic dependency primary keys (cross-clone merge-safety).** `dependencies.id` (and `wisp_dependencies.id`) were filled by `DEFAULT (UUID())`, a per-clone-random value. Two clones that created the same edge — or that applied migration `0043` independently — diverged on the primary key, so `bd dolt pull` failed unrecoverably (`cannot merge because table dependencies has different primary keys in its common ancestor`, or a `uk_dep_*` unique-key violation). `id` is now derived deterministically from the natural edge key `(issue_id, target)` at every insert site (`internal/storage/depid`); migration `0050` drops the random default and idempotently re-asserts the natural-identity unique keys; and an upgrade backfill rewrites existing rows. Independently-migrated clones now converge to byte-identical, merge-safe `dependencies`. And because the same edge now has the same primary key on every clone, `bd dolt pull` **auto-resolves** a same-edge dependency conflict that differs only in audit columns (created_at/created_by/metadata/thread_id) the same way it already does for the metadata table — so two machines that each run `bd dep add X Y` between syncs merge cleanly. A conflict where the dependency *type* differs is still surfaced for the operator. ([#4259](https://github.com/gastownhall/beads/issues/4259))
 
+### Changed
+
+- **`BEADS_SESSION_ID` is the primary session env var; `CLAUDE_SESSION_ID` is a deprecated alias.** Session attribution for close-time audit (`closed_by_session`) now resolves through a shared chain — `--session` flag (where present) > `BEADS_SESSION_ID` > `CLAUDE_SESSION_ID` — consolidated into one `getSession` helper, mirroring the existing `BEADS_ACTOR` > `BD_ACTOR` deprecation. The `bd supersede` / `bd duplicate` close path no longer reads `CLAUDE_SESSION_ID` directly; it resolves session from the environment via the shared helper (these commands keep their minimal flag set and do not add a `--session` flag). `CLAUDE_SESSION_ID` continues to work. (bd-p50l)
+
 ## [1.0.5] - 2026-05-28
 
 ### Upgrade Notes

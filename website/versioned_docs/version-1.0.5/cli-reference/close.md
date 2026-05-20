@@ -35,6 +35,6 @@ bd close [id...] [flags]
       --no-auto              With --continue, show next step but don't claim it
   -r, --reason string        Reason for closing
       --reason-file string   Read close reason from file (use - for stdin)
-      --session string       Claude Code session ID (or set CLAUDE_SESSION_ID env var)
+      --session string       Session ID for audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)
       --suggest-next         Show newly unblocked issues after closing
 ```

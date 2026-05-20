@@ -120,6 +120,28 @@ func TestEmbeddedSupersede(t *testing.T) {
 		}
 	})
 
+	// ===== Session attribution =====
+	// supersede has no --session flag (intentional; see bd-p50l). Session
+	// attribution flows from the environment via getSession.
+
+	t.Run("session_beads_env", func(t *testing.T) {
+		oldIssue := bdCreate(t, bd, dir, "Session env old", "--type", "task")
+		newIssue := bdCreate(t, bd, dir, "Session env new", "--type", "task")
+		cmd := exec.Command(bd, "supersede", oldIssue.ID, "--with", newIssue.ID)
+		cmd.Dir = dir
+		env := bdEnv(dir)
+		env = append(env, "BEADS_SESSION_ID=ss-env-sess")
+		cmd.Env = env
+		stdout, stderr, err := runCommandBuffers(t, cmd)
+		if err != nil {
+			t.Fatalf("bd supersede with BEADS_SESSION_ID failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		}
+		session := querySessionSQL(t, beadsDir, oldIssue.ID)
+		if session != "ss-env-sess" {
+			t.Errorf("expected closed_by_session 'ss-env-sess', got %q", session)
+		}
+	})
+
 	// ===== Error: same ID =====
 
 	t.Run("error_same_id", func(t *testing.T) {
@@ -133,6 +155,79 @@ func TestEmbeddedSupersede(t *testing.T) {
 		issue := bdCreate(t, bd, dir, "No replacement", "--type", "task")
 		bdSupersedeFail(t, bd, dir, issue.ID, "--with", "ss-nonexistent999")
 	})
+}
+
+// TestEmbeddedSupersedeCyclicDoesNotCascadeClose reproduces bd-p50l: a cyclic
+// supersede edge between A <-> B must not cause unrelated beads to close when
+// a later, unrelated supersede runs. It also verifies that supersede records
+// audit-visible close metadata (close_reason set) so the close is not silent.
+func TestEmbeddedSupersedeCyclicDoesNotCascadeClose(t *testing.T) {
+	if os.Getenv("BEADS_TEST_EMBEDDED_DOLT") != "1" {
+		t.Skip("set BEADS_TEST_EMBEDDED_DOLT=1 to run embedded dolt integration tests")
+	}
+	t.Parallel()
+
+	bd := buildEmbeddedBD(t)
+	dir, beadsDir, _ := bdInit(t, bd, "--prefix", "ssc2")
+
+	a := bdCreate(t, bd, dir, "Bead A (rpgjp analog)", "--type", "task")
+	b := bdCreate(t, bd, dir, "Bead B (t1k66 analog)", "--type", "task")
+	c := bdCreate(t, bd, dir, "Bead C (bgloz analog)", "--type", "task")
+	d := bdCreate(t, bd, dir, "Bead D (v2m8x analog)", "--type", "task")
+
+	// Step 1: supersede B -> A (B is replaced by A). Closes B.
+	bdSupersede(t, bd, dir, b.ID, "--with", a.ID)
+
+	// Step 2: supersede A -> B (A is replaced by B). Creates cyclic edge A<->B.
+	// Closes A.
+	bdSupersede(t, bd, dir, a.ID, "--with", b.ID)
+
+	s := openStore(t, beadsDir, "ssc2")
+
+	aBefore, err := s.GetIssue(t.Context(), a.ID)
+	if err != nil {
+		t.Fatalf("GetIssue %s: %v", a.ID, err)
+	}
+	if aBefore.Status != "closed" {
+		t.Fatalf("precondition: expected A closed after self-supersede, got %s", aBefore.Status)
+	}
+	aClosedAt := aBefore.ClosedAt
+
+	// Step 3: supersede an UNRELATED pair C -> D.
+	bdSupersede(t, bd, dir, c.ID, "--with", d.ID)
+
+	aAfter, err := s.GetIssue(t.Context(), a.ID)
+	if err != nil {
+		t.Fatalf("GetIssue %s after unrelated supersede: %v", a.ID, err)
+	}
+	if aAfter.ClosedAt == nil || aClosedAt == nil {
+		t.Fatalf("expected A.closed_at populated before and after; got before=%v after=%v", aClosedAt, aAfter.ClosedAt)
+	}
+	if !aAfter.ClosedAt.Equal(*aClosedAt) {
+		t.Errorf("A's closed_at changed after unrelated supersede: was %v, now %v (cascade close bug)", aClosedAt, aAfter.ClosedAt)
+	}
+
+	// Audit-trail check: A was closed by supersede; close_reason must
+	// reference the replacement so the close is not silent (bd-p50l).
+	if aAfter.CloseReason == "" {
+		t.Errorf("A.close_reason is empty after supersede close (silent close bug)")
+	}
+	if !strings.Contains(aAfter.CloseReason, b.ID) {
+		t.Errorf("A.close_reason should reference replacement %s, got %q", b.ID, aAfter.CloseReason)
+	}
+
+	// Also verify the unrelated supersede recorded its own close_reason
+	// referencing D.
+	cIssue, err := s.GetIssue(t.Context(), c.ID)
+	if err != nil {
+		t.Fatalf("GetIssue %s: %v", c.ID, err)
+	}
+	if cIssue.Status != "closed" {
+		t.Errorf("expected C closed, got %s", cIssue.Status)
+	}
+	if !strings.Contains(cIssue.CloseReason, d.ID) {
+		t.Errorf("C.close_reason should reference replacement %s, got %q", d.ID, cIssue.CloseReason)
+	}
 }
 
 // TestEmbeddedSupersedeConcurrent exercises supersede operations concurrently.
