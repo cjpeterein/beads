@@ -490,6 +490,30 @@ func getActorWithGit() string {
 	return "unknown"
 }
 
+// getSession resolves the session ID for close/audit attribution.
+// Priority: --session flag > BEADS_SESSION_ID env (primary) > CLAUDE_SESSION_ID env (deprecated alias).
+// This mirrors the BEADS_ACTOR > BD_ACTOR deprecation pattern in getActorWithGit.
+// A nil cmd (or a command without a --session flag) skips the flag and resolves
+// from the environment, so close-adjacent callers like supersede/duplicate can
+// share this resolution before they grow their own flag.
+func getSession(cmd *cobra.Command) string {
+	if cmd != nil {
+		if flag := cmd.Flags().Lookup("session"); flag != nil {
+			if session, _ := cmd.Flags().GetString("session"); session != "" {
+				return session
+			}
+		}
+	}
+
+	// BEADS_SESSION_ID is the primary env var.
+	if session := os.Getenv("BEADS_SESSION_ID"); session != "" {
+		return session
+	}
+
+	// CLAUDE_SESSION_ID is a deprecated alias, kept for backwards compatibility.
+	return os.Getenv("CLAUDE_SESSION_ID")
+}
+
 // getOwner returns the human owner for CV attribution.
 // Priority: GIT_AUTHOR_EMAIL env > git config user.email > "" (empty)
 // This is the foundation for HOP CV (curriculum vitae) chains per Decision 008.

@@ -120,6 +120,36 @@ func TestEmbeddedSupersede(t *testing.T) {
 		}
 	})
 
+	// ===== Session attribution =====
+
+	t.Run("session_flag", func(t *testing.T) {
+		oldIssue := bdCreate(t, bd, dir, "Session flag old", "--type", "task")
+		newIssue := bdCreate(t, bd, dir, "Session flag new", "--type", "task")
+		bdSupersede(t, bd, dir, oldIssue.ID, "--with", newIssue.ID, "--session", "ss-flag-sess")
+		session := querySessionSQL(t, beadsDir, oldIssue.ID)
+		if session != "ss-flag-sess" {
+			t.Errorf("expected closed_by_session 'ss-flag-sess', got %q", session)
+		}
+	})
+
+	t.Run("session_beads_env", func(t *testing.T) {
+		oldIssue := bdCreate(t, bd, dir, "Session env old", "--type", "task")
+		newIssue := bdCreate(t, bd, dir, "Session env new", "--type", "task")
+		cmd := exec.Command(bd, "supersede", oldIssue.ID, "--with", newIssue.ID)
+		cmd.Dir = dir
+		env := bdEnv(dir)
+		env = append(env, "BEADS_SESSION_ID=ss-env-sess")
+		cmd.Env = env
+		stdout, stderr, err := runCommandBuffers(t, cmd)
+		if err != nil {
+			t.Fatalf("bd supersede with BEADS_SESSION_ID failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		}
+		session := querySessionSQL(t, beadsDir, oldIssue.ID)
+		if session != "ss-env-sess" {
+			t.Errorf("expected closed_by_session 'ss-env-sess', got %q", session)
+		}
+	})
+
 	// ===== Error: same ID =====
 
 	t.Run("error_same_id", func(t *testing.T) {

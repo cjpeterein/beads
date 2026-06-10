@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/beads/internal/audit"
@@ -49,11 +48,13 @@ var (
 func init() {
 	duplicateCmd.Flags().StringVar(&duplicateOf, "of", "", "Canonical issue ID (required)")
 	_ = duplicateCmd.MarkFlagRequired("of") // Only fails if flag missing (caught in tests)
+	duplicateCmd.Flags().String("session", "", "Session ID for audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)")
 	duplicateCmd.ValidArgsFunction = issueIDCompletion
 	rootCmd.AddCommand(duplicateCmd)
 
 	supersedeCmd.Flags().StringVar(&supersededWith, "with", "", "Replacement issue ID (required)")
 	_ = supersedeCmd.MarkFlagRequired("with") // Only fails if flag missing (caught in tests)
+	supersedeCmd.Flags().String("session", "", "Session ID for audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)")
 	supersedeCmd.ValidArgsFunction = issueIDCompletion
 	rootCmd.AddCommand(supersedeCmd)
 }
@@ -108,7 +109,7 @@ func runDuplicate(cmd *cobra.Command, args []string) error {
 	// Close the duplicate issue with a recorded reason so the close is
 	// auditable (close_reason populated, audit log entry emitted) instead
 	// of a silent UpdateIssue(status=closed). See bd-p50l.
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := getSession(cmd)
 	reason := fmt.Sprintf("duplicate of %s", canonicalID)
 	if err := store.CloseIssue(ctx, duplicateID, reason, actor, session); err != nil {
 		return fmt.Errorf("failed to close duplicate: %w", err)
@@ -180,7 +181,7 @@ func runSupersede(cmd *cobra.Command, args []string) error {
 	// Close the superseded issue with a recorded reason so the close is
 	// auditable (close_reason populated, audit log entry emitted) instead
 	// of a silent UpdateIssue(status=closed). See bd-p50l.
-	session := os.Getenv("CLAUDE_SESSION_ID")
+	session := getSession(cmd)
 	reason := fmt.Sprintf("superseded by %s", newID)
 	if err := store.CloseIssue(ctx, oldID, reason, actor, session); err != nil {
 		return fmt.Errorf("failed to close superseded issue: %w", err)

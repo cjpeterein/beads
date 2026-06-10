@@ -25,5 +25,6 @@ bd supersede <id> --with <new> [flags]
 **Flags:**
 
 ```
-      --with string   Replacement issue ID (required)
+      --session string   Session ID for audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)
+      --with string      Replacement issue ID (required)
 ```

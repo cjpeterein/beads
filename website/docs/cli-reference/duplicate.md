@@ -25,5 +25,6 @@ bd duplicate <id> --of <canonical> [flags]
 **Flags:**
 
 ```
-      --of string   Canonical issue ID (required)
+      --of string        Canonical issue ID (required)
+      --session string   Session ID for audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)
 ```

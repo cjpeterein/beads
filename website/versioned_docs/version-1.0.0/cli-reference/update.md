@@ -46,7 +46,7 @@ bd update [id...] [flags]
       --persistent                   Mark issue as persistent (promote wisp to regular issue)
   -p, --priority string              Priority (0-4 or P0-P4, 0=highest)
       --remove-label strings         Remove labels (repeatable)
-      --session string               Claude Code session ID for status=closed (or set CLAUDE_SESSION_ID env var)
+      --session string               Session ID for status=closed audit (or set BEADS_SESSION_ID; CLAUDE_SESSION_ID is a deprecated alias)
       --set-labels strings           Set labels, replacing all existing (repeatable)
       --set-metadata stringArray     Set metadata key=value (repeatable, e.g., --set-metadata team=platform)
       --spec-id string               Link to specification document

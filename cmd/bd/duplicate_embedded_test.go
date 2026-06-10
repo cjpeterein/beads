@@ -121,6 +121,36 @@ func TestEmbeddedDuplicate(t *testing.T) {
 		}
 	})
 
+	// ===== Session attribution =====
+
+	t.Run("session_flag", func(t *testing.T) {
+		canonical := bdCreate(t, bd, dir, "Session flag canon", "--type", "task")
+		dupe := bdCreate(t, bd, dir, "Session flag dupe", "--type", "task")
+		bdDuplicate(t, bd, dir, dupe.ID, "--of", canonical.ID, "--session", "du-flag-sess")
+		session := querySessionSQL(t, beadsDir, dupe.ID)
+		if session != "du-flag-sess" {
+			t.Errorf("expected closed_by_session 'du-flag-sess', got %q", session)
+		}
+	})
+
+	t.Run("session_beads_env", func(t *testing.T) {
+		canonical := bdCreate(t, bd, dir, "Session env canon", "--type", "task")
+		dupe := bdCreate(t, bd, dir, "Session env dupe", "--type", "task")
+		cmd := exec.Command(bd, "duplicate", dupe.ID, "--of", canonical.ID)
+		cmd.Dir = dir
+		env := bdEnv(dir)
+		env = append(env, "BEADS_SESSION_ID=du-env-sess")
+		cmd.Env = env
+		stdout, stderr, err := runCommandBuffers(t, cmd)
+		if err != nil {
+			t.Fatalf("bd duplicate with BEADS_SESSION_ID failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+		}
+		session := querySessionSQL(t, beadsDir, dupe.ID)
+		if session != "du-env-sess" {
+			t.Errorf("expected closed_by_session 'du-env-sess', got %q", session)
+		}
+	})
+
 	// ===== Error: same ID =====
 
 	t.Run("error_same_id", func(t *testing.T) {
