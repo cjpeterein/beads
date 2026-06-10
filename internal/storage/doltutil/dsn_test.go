@@ -3,6 +3,8 @@ package doltutil
 import (
 	"strings"
 	"testing"
+
+	mysql "github.com/go-sql-driver/mysql"
 )
 
 func TestServerDSN_TLSExplicitlyDisabledByDefault(t *testing.T) {
@@ -78,6 +80,28 @@ func TestServerDSN_TCPFallbackWithoutSocket(t *testing.T) {
 	}
 	if !strings.Contains(dsn, "tcp") {
 		t.Errorf("DSN should contain tcp network; got %q", dsn)
+	}
+}
+
+// TestServerDSN_MaxAllowedPacketSet guards against the per-connection
+// "SELECT @@max_allowed_packet" tax (bd-tym). A struct-literal mysql.Config
+// leaves MaxAllowedPacket at the zero value; the driver then probes the server
+// on every physical connection. The generated DSN must parse back to a
+// non-zero MaxAllowedPacket so the driver skips that probe.
+func TestServerDSN_MaxAllowedPacketSet(t *testing.T) {
+	dsn := ServerDSN{
+		Host: "127.0.0.1",
+		Port: 3307,
+		User: "root",
+	}.String()
+
+	cfg, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("ParseDSN(%q) failed: %v", dsn, err)
+	}
+	if cfg.MaxAllowedPacket <= 0 {
+		t.Errorf("MaxAllowedPacket should be > 0 to skip the per-connection probe; got %d (DSN %q)",
+			cfg.MaxAllowedPacket, dsn)
 	}
 }
 

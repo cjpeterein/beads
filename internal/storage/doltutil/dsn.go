@@ -7,6 +7,12 @@ import (
 	mysql "github.com/go-sql-driver/mysql"
 )
 
+// defaultMaxAllowedPacket mirrors go-sql-driver/mysql's own default
+// (mysql.NewConfig sets MaxAllowedPacket to 64 MiB). Struct-literal
+// mysql.Config values do not get this default, so we set it explicitly to
+// suppress the driver's per-connection "SELECT @@max_allowed_packet" probe.
+const defaultMaxAllowedPacket = 64 << 20
+
 // ServerDSN holds connection parameters for building a MySQL DSN to a Dolt server.
 // All DSNs built with this struct set parseTime=true and multiStatements=true.
 type ServerDSN struct {
@@ -45,6 +51,15 @@ func (d ServerDSN) String() string {
 		MultiStatements:      true,
 		Timeout:              timeout,
 		AllowNativePasswords: true,
+		// Match the driver's own default (mysql.NewConfig sets this to
+		// 64 MiB). A struct-literal mysql.Config leaves MaxAllowedPacket at
+		// the zero value, which the driver treats as "unknown" and probes with
+		// SELECT @@max_allowed_packet on every physical connection. bd opens
+		// many short-lived connections per invocation, so that round-trip is a
+		// fixed per-connection tax on the Dolt server. Setting the documented
+		// default keeps FormatDSN from emitting the param and lets the driver
+		// skip the probe (connector.go: MaxAllowedPacket > 0).
+		MaxAllowedPacket: defaultMaxAllowedPacket,
 	}
 	if d.TLS {
 		cfg.TLSConfig = "true"
