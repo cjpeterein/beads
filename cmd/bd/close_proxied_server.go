@@ -153,10 +153,7 @@ func gatherCloseProxiedInput(cmd *cobra.Command) closeProxiedInput {
 	in.noAuto, _ = cmd.Flags().GetBool("no-auto")
 	in.suggestNext, _ = cmd.Flags().GetBool("suggest-next")
 	in.claimNext, _ = cmd.Flags().GetBool("claim-next")
-	in.session, _ = cmd.Flags().GetString("session")
-	if in.session == "" {
-		in.session = os.Getenv("CLAUDE_SESSION_ID")
-	}
+	in.session = getSession(cmd)
 	in.jsonOut, _ = cmd.Flags().GetBool("json")
 	return in
 }
